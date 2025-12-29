@@ -1,6 +1,6 @@
 FROM golang:1.25.3-alpine AS builder
 
-WORKDIR /app
+WORKDIR /srv
 
 RUN apk add --no-cache gcc musl-dev
 
@@ -9,20 +9,21 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=1 go build -o cloudtorrent .
+# Rename output binary
+RUN CGO_ENABLED=1 go build -o appserver .
 
 FROM alpine:latest
 
-WORKDIR /app
+WORKDIR /srv
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates ffmpeg
 
-COPY --from=builder /app/cloudtorrent .
-COPY --from=builder /app/static ./static
+COPY --from=builder /srv/appserver ./appserver
+COPY --from=builder /srv/static ./static
 
-RUN mkdir -p /app/downloads
+RUN mkdir -p /srv/data
 
 EXPOSE 8080
-VOLUME ["/app/downloads"]
+VOLUME ["/srv/data"]
 
-CMD ["./cloudtorrent"]
+CMD ["./appserver"]
