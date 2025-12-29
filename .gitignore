@@ -1,5 +1,30 @@
-main
-downloads/downloads/torrents/torrents.db
-downloads/downloads/torrents.db
-downloads/torrents.db
-s.sh
+# Binaries
+cloudtorrent
+cloudtorrent.exe
+*.exe
+
+# Downloads and data
+downloads/
+*.db
+*.db-journal
+torrents.db
+
+# Temporary files
+*.zip
+*.tmp
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+go.sum

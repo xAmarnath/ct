@@ -11,170 +11,119 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
-	"github.com/julienschmidt/sse"
+	"github.com/gin-gonic/gin"
 )
 
-var (
-	SSEFeed = sse.New()
-)
+// Gin Handlers
 
-func GetTorrent(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	r.ParseForm()
-	id := r.FormValue("uid")
+func AddTorrentHandler(c *gin.Context) {
+	magnet := c.PostForm("magnet")
+	if magnet == "" {
+		c.String(http.StatusBadRequest, "No magnet provided")
+		return
+	}
+	if ok, err := AddTorrentByMagnet(magnet); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	} else if !ok {
+		c.String(http.StatusBadRequest, "Torrent already exists")
+		return
+	}
+	BroadcastMessage("torrent_added", map[string]string{"status": "ok"})
+	c.Status(http.StatusOK)
+}
+
+func ActiveTorrentsHandler(c *gin.Context) {
+	torrents := GetAllTorrents()
+	c.JSON(http.StatusOK, torrents)
+}
+
+func GetTorrentHandler(c *gin.Context) {
+	id := c.Query("uid")
 	if id == "" {
-		http.Error(w, "No uid provided", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "No uid provided")
 		return
 	}
 	torrent := GetTorrentByID(id)
 	if torrent.Status == "" {
-		http.Error(w, "Torrent not found", http.StatusNotFound)
+		c.String(http.StatusNotFound, "Torrent not found")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(torrent)
+	c.JSON(http.StatusOK, torrent)
 }
 
-func AddTorrent(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	r.ParseForm()
-	magnet := r.FormValue("magnet")
-	if magnet == "" {
-		http.Error(w, "No magnet provided", http.StatusBadRequest)
-		return
-	}
-	if ok, err := AddTorrentByMagnet(magnet); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	} else if !ok {
-		http.Error(w, "Torrent already exists", http.StatusBadRequest)
-		return
-	} else {
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func DeleteTorrent(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	r.ParseForm()
-	id := r.FormValue("uid")
+func DeleteTorrentHandler(c *gin.Context) {
+	id := c.PostForm("uid")
 	if id == "" {
-		http.Error(w, "No uid provided", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "No uid provided")
 		return
 	}
 	if ok, err := DeleteTorrentByID(id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	} else if !ok {
-		http.Error(w, "Torrent not found", http.StatusNotFound)
+		c.String(http.StatusNotFound, "Torrent not found")
 		return
-	} else {
-		w.WriteHeader(http.StatusOK)
 	}
+	BroadcastMessage("torrent_removed", map[string]string{"uid": id})
+	c.Status(http.StatusOK)
 }
 
-func PauseTorrent(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	r.ParseForm()
-	id := r.FormValue("uid")
+func PauseTorrentHandler(c *gin.Context) {
+	id := c.PostForm("uid")
 	if id == "" {
-		http.Error(w, "No uid provided", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "No uid provided")
 		return
 	}
 	if ok, err := PauseTorrentByID(id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	} else if !ok {
-		http.Error(w, "Torrent not found", http.StatusNotFound)
+		c.String(http.StatusNotFound, "Torrent not found")
 		return
-	} else {
-		w.WriteHeader(http.StatusOK)
 	}
+	c.Status(http.StatusOK)
 }
 
-func ResumeTorrent(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	r.ParseForm()
-	id := r.FormValue("uid")
+func ResumeTorrentHandler(c *gin.Context) {
+	id := c.PostForm("uid")
 	if id == "" {
-		http.Error(w, "No uid provided", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "No uid provided")
 		return
 	}
 	if ok, err := ResumeTorrentByID(id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	} else if !ok {
-		http.Error(w, "Torrent not found", http.StatusNotFound)
+		c.String(http.StatusNotFound, "Torrent not found")
 		return
-	} else {
-		w.WriteHeader(http.StatusOK)
 	}
+	c.Status(http.StatusOK)
 }
 
-func DropAll(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
+func DropAllHandler(c *gin.Context) {
 	if err := DropAllTorrents(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	c.Status(http.StatusOK)
 }
 
-func StartAllHandler(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
+func StartAllHandler(c *gin.Context) {
 	StartAll()
-	w.WriteHeader(http.StatusOK)
+	c.Status(http.StatusOK)
 }
 
-func StopAllHandler(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
+func StopAllHandler(c *gin.Context) {
 	StopAll()
-	w.WriteHeader(http.StatusOK)
+	c.Status(http.StatusOK)
 }
 
-func SystemStats(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
+func SystemStatsHandler(c *gin.Context) {
 	Disk := DiskUsage(Root)
 	Details := SysInfo{
-		IP:        GetIP(r),
+		IP:        c.ClientIP(),
 		OS:        runtime.GOOS,
 		Arch:      runtime.GOARCH,
 		CPU:       fmt.Sprint(runtime.NumCPU()),
@@ -182,213 +131,276 @@ func SystemStats(w http.ResponseWriter, r *http.Request) {
 		Disk:      fmt.Sprintf("%s/%s", Disk.Used, Disk.All),
 		Downloads: fmt.Sprint(GetLenTorrents()),
 	}
-	b, _ := json.Marshal(Details)
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(b)
+	c.JSON(http.StatusOK, Details)
 }
 
-func DeleteFileHandler(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	path := strings.Replace(AbsPath(filepath.Join(Root, r.URL.Path)), "api/deletefile/", "", 1)
+func DeleteFileHandler(c *gin.Context) {
+	path := strings.Replace(AbsPath(filepath.Join(Root, c.Param("path"))), "api/deletefile/", "", 1)
 	if strings.Contains(path, "/downloads/downloads") {
 		path = strings.Replace(path, "/downloads", "", 1)
 	}
-	if strings.Contains(path, "torrents.db") || r.URL.Path == "/api/deletefile/downloads/torrents" {
-		http.Error(w, "Protected path, cant delete!", http.StatusBadRequest)
+	if strings.Contains(path, "torrents.db") || c.Param("path") == "/downloads/torrents" {
+		c.String(http.StatusBadRequest, "Protected path, cant delete!")
 		return
 	}
 	if err := DeleteFile(path); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	c.Status(http.StatusOK)
 }
 
-func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	r.ParseMultipartForm(32 << 20)
-	file, handler, err := r.FormFile("file")
+func UploadFileHandler(c *gin.Context) {
+	file, handler, err := c.Request.FormFile("file")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer file.Close()
+
 	log.Printf("Uploaded file: %+v\n", handler.Filename)
 	log.Printf("File size: %+v\n", handler.Size)
-	log.Printf("MIME header: %+v\n", handler.Header)
-	DirPath := AbsPath(strings.Replace(AbsPath(filepath.Join(Root, r.FormValue("path"))), "/downloads", "", 1))
+
+	DirPath := AbsPath(strings.Replace(AbsPath(filepath.Join(Root, c.PostForm("path"))), "/downloads", "", 1))
 	f, err := os.OpenFile(filepath.Join(DirPath, handler.Filename), os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer f.Close()
 	io.Copy(f, file)
-	w.WriteHeader(http.StatusOK)
+	c.Status(http.StatusOK)
 }
 
-func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	r.ParseForm()
-	DirPath := AbsPath(strings.Replace(AbsPath(filepath.Join(Root, r.URL.Path)), "/api/create/downloads", "", 1))
+func CreateFolderHandler(c *gin.Context) {
+	DirPath := AbsPath(strings.Replace(AbsPath(filepath.Join(Root, c.Param("path"))), "/api/create/downloads", "", 1))
 	if err := os.MkdirAll(DirPath, 0777); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	c.Status(http.StatusOK)
 }
 
-func streamTorrentUpdate() {
-	fmt.Println("Streaming Torrents started...")
-	for range time.Tick(time.Millisecond * 600) {
-		TORRENTS := GetAllTorrents()
-		d, _ := json.Marshal(TORRENTS)
-		SSEFeed.SendString("", "torrents", string(d))
-	}
-}
-
-func ActiveTorrents(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	TORRENTS := GetAllTorrents()
-	d, _ := json.Marshal(TORRENTS)
-	w.Write(d)
-}
-
-func GetDirContents(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	path := strings.Replace(AbsPath(filepath.Join(Root, r.URL.Path)), "/dir", "", 1)
+func GetDirContentsHandler(c *gin.Context) {
+	path := strings.Replace(AbsPath(filepath.Join(Root, c.Param("path"))), "/dir", "", 1)
 	if IsDir, err := isDirectory(path); err == nil && IsDir {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
-			http.Error(w, "Directory not found", http.StatusNotFound)
+			c.String(http.StatusNotFound, "Directory not found")
 			return
 		}
 		files, err := GetDirContentsMap(path)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			c.String(http.StatusInternalServerError, err.Error())
 			return
 		}
 		if len(files) == 0 {
-			w.Write([]byte("[]"))
+			c.JSON(http.StatusOK, []FileInfo{})
 			return
 		}
-		d, _ := json.Marshal(files)
-		w.Write(d)
+		c.JSON(http.StatusOK, files)
 	} else {
-		http.ServeFile(w, r, path)
+		c.File(path)
 	}
 }
 
-func AutoComplete(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	r.ParseForm()
-	q := r.Form.Get("q")
+func AutoCompleteHandler(c *gin.Context) {
+	q := c.Query("q")
 	if q == "" {
-		http.Error(w, "No query", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "No query")
 		return
 	}
 	var client = http.DefaultClient
-	resp, err := client.Get("https://streamm4u.ws/searchJS?term=" + url.QueryEscape(q)) // Will improve
+	resp, err := client.Get("https://streamm4u.ws/searchJS?term=" + url.QueryEscape(q))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer resp.Body.Close()
 	var data []string
 	json.NewDecoder(resp.Body).Decode(&data)
-	b, _ := json.Marshal(data)
-	w.Write(b)
+	c.JSON(http.StatusOK, data)
 }
 
-func SearchTorrents(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	r.ParseForm()
-	q := r.Form.Get("q")
+func SearchTorrentsHandler(c *gin.Context) {
+	q := c.Query("q")
 	if q == "" {
-		http.Error(w, "No query", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "No query")
 		return
 	}
-	w.Write(GatherSearchResults(q))
+	c.Data(http.StatusOK, "application/json", GatherSearchResults(q))
 }
 
-func ZipFolderHandler(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if err, ok := recover().(error); ok {
-
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}()
-	r.ParseForm()
-	path := strings.Replace(AbsPath(filepath.Join(Root, r.URL.Path)), "api/zip/", "", 1)
+func ZipFolderHandler(c *gin.Context) {
+	path := strings.Replace(AbsPath(filepath.Join(Root, c.Param("path"))), "api/zip/", "", 1)
 	if strings.Contains(path, "/downloads/downloads") {
 		path = strings.Replace(path, "/downloads", "", 1)
 	}
 	folderName := filepath.Base(path)
 	_, err := ZipDir(path, folderName)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
 	filePath := "/dir/torrents/" + folderName + ".zip"
-	var data = map[string]string{
+	c.JSON(http.StatusOK, gin.H{
 		"file": filePath,
 		"name": folderName + ".zip",
-	}
-	d, _ := json.Marshal(data)
-	w.Write(d)
+	})
 }
 
-func init() {
-	var API = []Handle{
-		{"/api/add", AddTorrent},
-		{"/api/torrents", ActiveTorrents},
-		{"/api/torrent", GetTorrent},
-		{"/api/status", SystemStats},
-		{"/api/remove", DeleteTorrent},
-		{"/api/pause", PauseTorrent},
-		{"/api/resume", ResumeTorrent},
-		{"/api/search/", SearchTorrents},
-		{"/api/autocomplete", AutoComplete},
-		{"/api/removeall", DropAll},
-		{"/api/stopall", StopAllHandler},
-		{"/api/startall", StartAllHandler},
-		{"/api/upload", UploadFileHandler},
-		{"/api/create/", CreateFolderHandler},
-		{"/api/deletefile/", DeleteFileHandler},
-		{"/api/zip/", ZipFolderHandler},
+// Aria2 Gin Handlers
+
+func Aria2StatusHandlerGin(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"available": IsAria2Available()})
+}
+
+func AddAria2HandlerGin(c *gin.Context) {
+	if !IsAria2Available() {
+		c.String(http.StatusServiceUnavailable, "aria2 not available")
+		return
 	}
-	for _, api := range API {
-		http.HandleFunc(api.Path, api.Func)
+	url := c.PostForm("url")
+	if url == "" {
+		c.String(http.StatusBadRequest, "No URL provided")
+		return
 	}
-	// update Server Events
-	http.Handle("/torrents/update", SSEFeed)
-	// Serve files
-	http.HandleFunc("/dir/", GetDirContents)
+	gid, err := AddAria2Download(url)
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"gid": gid})
+}
+
+func GetAria2HandlerGin(c *gin.Context) {
+	if !IsAria2Available() {
+		c.JSON(http.StatusOK, []Aria2Download{})
+		return
+	}
+	c.JSON(http.StatusOK, GetAria2Downloads())
+}
+
+func PauseAria2HandlerGin(c *gin.Context) {
+	if !IsAria2Available() {
+		c.String(http.StatusServiceUnavailable, "aria2 not available")
+		return
+	}
+	gid := c.PostForm("gid")
+	if gid == "" {
+		c.String(http.StatusBadRequest, "No GID provided")
+		return
+	}
+	if err := PauseAria2Download(gid); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
+func ResumeAria2HandlerGin(c *gin.Context) {
+	if !IsAria2Available() {
+		c.String(http.StatusServiceUnavailable, "aria2 not available")
+		return
+	}
+	gid := c.PostForm("gid")
+	if gid == "" {
+		c.String(http.StatusBadRequest, "No GID provided")
+		return
+	}
+	if err := ResumeAria2Download(gid); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
+func RemoveAria2HandlerGin(c *gin.Context) {
+	if !IsAria2Available() {
+		c.String(http.StatusServiceUnavailable, "aria2 not available")
+		return
+	}
+	gid := c.PostForm("gid")
+	if gid == "" {
+		c.String(http.StatusBadRequest, "No GID provided")
+		return
+	}
+	if err := RemoveAria2Download(gid); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
+// FFmpeg Gin Handlers
+
+func FFmpegStatusHandlerGin(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"available": IsFFmpegAvailable()})
+}
+
+func AddConversionHandlerGin(c *gin.Context) {
+	if !IsFFmpegAvailable() {
+		c.String(http.StatusServiceUnavailable, "ffmpeg not available")
+		return
+	}
+	inputPath := c.PostForm("path")
+	format := c.PostForm("format")
+	if inputPath == "" {
+		c.String(http.StatusBadRequest, "No input path provided")
+		return
+	}
+	if format == "" {
+		format = "mp4"
+	}
+	if !filepath.IsAbs(inputPath) {
+		inputPath = strings.TrimPrefix(inputPath, "/dir")
+		inputPath = filepath.Join(Root, inputPath)
+	}
+	job, err := AddConversionJob(inputPath, format)
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, job)
+}
+
+func GetConversionQueueHandlerGin(c *gin.Context) {
+	if !IsFFmpegAvailable() {
+		c.JSON(http.StatusOK, []*ConversionJob{})
+		return
+	}
+	c.JSON(http.StatusOK, GetConversionQueue())
+}
+
+func CancelConversionHandlerGin(c *gin.Context) {
+	if !IsFFmpegAvailable() {
+		c.String(http.StatusServiceUnavailable, "ffmpeg not available")
+		return
+	}
+	jobID := c.PostForm("id")
+	if jobID == "" {
+		c.String(http.StatusBadRequest, "No job ID provided")
+		return
+	}
+	if err := CancelConversion(jobID); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
+func RemoveConversionHandlerGin(c *gin.Context) {
+	if !IsFFmpegAvailable() {
+		c.String(http.StatusServiceUnavailable, "ffmpeg not available")
+		return
+	}
+	jobID := c.PostForm("id")
+	if jobID == "" {
+		c.String(http.StatusBadRequest, "No job ID provided")
+		return
+	}
+	if err := RemoveConversionJob(jobID); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Status(http.StatusOK)
 }

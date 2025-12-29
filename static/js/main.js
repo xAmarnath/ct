@@ -1,211 +1,263 @@
-var Audd = new Audio();
-var table = document.getElementById("files-table");
-var CurrentPlaying = [null, null];
+// File Browser - main.js
 
-function updateDirList(url) {
-    if (url == null) {
-        url = "/dir/" + window.location.pathname.replace("/downloads", "")
+let currentPath = window.location.pathname;
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadDirectory();
+    updateBreadcrumb();
+});
+
+function loadDirectory(path) {
+    if (!path) {
+        path = '/dir' + window.location.pathname.replace('/downloads', '');
     }
+
     $.ajax({
-        url: url,
-        type: "GET",
-        dataType: "json",
+        url: path,
+        type: 'GET',
+        dataType: 'json',
         success: function (data) {
-            var dirList = document.getElementById("dir-list");
-            dirList.innerHTML = "";
-            if (data.length === 0) {
-                data.push({ "name": "No Files...", "path": "", "type": "dir" });
-            }
-            for (var i = 0; i < data.length; i++) {
-                var dir = data[i];
-                var a = `<a class='list-group-item list-group-item-action flex-column align-items-start'>`;
-                if (IsDark()) {
-                    a = `<a class='list-group-item list-group-item-action flex-column align-items-start text-white' style='background-color: #212529'>`;
-                }
-                a += "<div class='d-flex w-100 justify-content-between'>";
-                if (dir.is_dir == "true") {
-                    a += `<h5 class="mb-1"><img src="https://img.icons8.com/color/48/000000/folder-invoices--v1.png" width="40px" style="margin-right: 3px;"/> ${dir.name}</h5>`;
-                } else {
-                    a += `<h5 class="mb-1"><img src="https://img.icons8.com/${dir.icon}" width="40px" style="margin-right: 3px;"/> ${dir.name}${dir.ext}</h5>`;
-                }
-                a += "<small>" + dir.size + "</small>";
-                a += "</div>";
-                a += "<p class='mb-1 small'>" + dir.type + "</p>";
-                a += `<div id="player_id_${i}"></div>`;
-                a += `<div class="mt-2 pt-2 border-top">`;
-                a += `<div class="btn-group" role="group">`;
-                if (dir.is_dir == "true") {
-                    a += `<button type="button" class="btn btn-primary btn-sm" data-path="${dir.path}" onclick="zipDir(this)">Zip & Download</button>`;
-                    a += `<button type="button" class="btn btn-secondary btn-sm" data-path="${dir.path}" onclick="btnHref(this)">Browse</button>`;
-                } else {
-                    a += `<button type="button" class="btn btn-primary btn-sm" data-path="${dir.path}" onclick="downloadStart(this)" >Download</button>`;
-                    if (dir.type == "Video") {
-                        a += `<button type="button" class="btn btn-warning btn-sm" data-src="${dir.path}" data-id="${i}" onclick="playVideo(this)">Play</button>`;
-                        if (dir.ext == ".mkv") {
-                            a += `<button type="button" class="btn btn-danger btn-sm" data-src="${dir.path}" data-id="${i}" onclick="playAudio(this)">-> MP4</button>`;
-                        }
-                    } else if (dir.type == "Audio") {
-                        a += `<button type="button" class="btn btn-danger btn-sm" data-path="${dir.path}" onclick="playAudio(this)">Play</button>`;
-                    } else if (dir.type == "Image") {
-                        a += `<button type="button" class="btn btn-success btn-sm" data-src="${dir.path}" onclick="showImage(this)">View</button>`;
-                    }
-                }
-                a += `<button type='button' class='btn btn-danger btn-sm' onclick='deleteFile(this)' data-path='${dir.path}'>Delete</button>`;
-                a += `<button type='button' class='btn btn-success btn-sm' data-url='${window.location.host}${dir.path}' onclick='copyToClipboard(this)'><i class="bi bi-clipboard-plus"></i></button>`;
-                a += "</div></div>";
-                a += "</a>";
-                dirList.innerHTML += a;
-            }
+            renderFiles(data || []);
         },
         error: function (err) {
-            console.log(err);
-        },
+            console.error('Error loading directory:', err);
+            renderFiles([]);
+        }
     });
 }
 
+function renderFiles(files) {
+    const container = document.getElementById('file-list');
+    if (!container) return;
 
-function downloadStart(e) {
-    var path = e.getAttribute("data-path");
-    var name = path.split("/").pop();
-    var a = document.createElement("a");
+    if (!files || files.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state" style="grid-column: 1/-1;">
+                <i class="bi bi-folder2-open"></i>
+                <h3>Empty Folder</h3>
+                <p>No files or folders here</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Sort: folders first, then files
+    files.sort((a, b) => {
+        if (a.is_dir === 'true' && b.is_dir !== 'true') return -1;
+        if (a.is_dir !== 'true' && b.is_dir === 'true') return 1;
+        return a.name.localeCompare(b.name);
+    });
+
+    container.innerHTML = files.map(file => createFileCard(file)).join('');
+}
+
+function createFileCard(file) {
+    const isDir = file.is_dir === 'true';
+    const iconClass = getFileIconClass(file);
+    const fullName = file.name + (file.ext || '');
+
+    return `
+        <div class="file-card" onclick="${isDir ? `navigateTo('${file.path}')` : ''}">
+            <div class="file-icon ${iconClass}">
+                <i class="bi bi-${getFileIcon(file)}"></i>
+            </div>
+            <div class="file-name">${escapeHtml(fullName)}</div>
+            <div class="file-size">${file.size}</div>
+            <div class="item-actions" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.05);" onclick="event.stopPropagation()">
+                ${renderFileActions(file, isDir)}
+            </div>
+        </div>
+    `;
+}
+
+function renderFileActions(file, isDir) {
+    let actions = '';
+
+    if (isDir) {
+        actions += `<button class="btn btn-secondary btn-sm" onclick="navigateTo('${file.path}')"><i class="bi bi-folder2-open"></i></button>`;
+        actions += `<button class="btn btn-secondary btn-sm" onclick="zipDir(this)" data-path="${file.path}"><i class="bi bi-file-zip"></i></button>`;
+    } else {
+        actions += `<button class="btn btn-primary btn-sm" onclick="downloadFile('${file.path}')"><i class="bi bi-download"></i></button>`;
+
+        if (file.type === 'Video') {
+            actions += `<button class="btn btn-secondary btn-sm" onclick="playVideo('${file.path}')"><i class="bi bi-play-fill"></i></button>`;
+            if (typeof showConvertDialog === 'function') {
+                actions += `<button class="btn btn-secondary btn-sm" onclick="showConvertDialog('${file.path}')"><i class="bi bi-film"></i></button>`;
+            }
+        } else if (file.type === 'Audio') {
+            actions += `<button class="btn btn-secondary btn-sm" onclick="playAudio('${file.path}')"><i class="bi bi-music-note"></i></button>`;
+        } else if (file.type === 'Image') {
+            actions += `<button class="btn btn-secondary btn-sm" onclick="showImage('${file.path}', '${escapeHtml(file.name)}')"><i class="bi bi-eye"></i></button>`;
+        }
+    }
+
+    actions += `<button class="btn btn-danger btn-sm" onclick="deleteFile('${file.path}', '${escapeHtml(file.name + (file.ext || ''))}')"><i class="bi bi-trash3"></i></button>`;
+    actions += `<button class="btn btn-ghost btn-sm" onclick="copyToClipboard(this)" data-url="${window.location.origin}${file.path}"><i class="bi bi-clipboard"></i></button>`;
+
+    return actions;
+}
+
+function getFileIcon(file) {
+    if (file.is_dir === 'true') return 'folder-fill';
+
+    switch (file.type) {
+        case 'Video': return 'film';
+        case 'Audio': return 'music-note-beamed';
+        case 'Image': return 'image';
+        case 'Archive': return 'file-zip';
+        case 'Pdf': return 'file-pdf';
+        case 'Text': return 'file-text';
+        default: return 'file-earmark';
+    }
+}
+
+function getFileIconClass(file) {
+    if (file.is_dir === 'true') return 'folder';
+
+    switch (file.type) {
+        case 'Video': return 'video';
+        case 'Audio': return 'audio';
+        case 'Image': return 'image';
+        case 'Archive': return 'archive';
+        default: return 'document';
+    }
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function navigateTo(path) {
+    window.location.href = path;
+}
+
+function goBack() {
+    const path = window.location.pathname;
+    if (path.length > 11) { // More than /downloads/
+        const newPath = path.substring(0, path.lastIndexOf('/'));
+        window.location.href = newPath || '/downloads/';
+    }
+}
+
+function updateBreadcrumb() {
+    const path = window.location.pathname.replace('/downloads', '');
+    const parts = path.split('/').filter(p => p);
+    const container = document.getElementById('breadcrumb');
+
+    let html = '<a href="/downloads/"><i class="bi bi-house"></i> Home</a>';
+    let currentPath = '/downloads';
+
+    parts.forEach((part, index) => {
+        currentPath += '/' + part;
+        html += '<span class="separator"><i class="bi bi-chevron-right"></i></span>';
+
+        if (index === parts.length - 1) {
+            html += `<span class="current">${decodeURIComponent(part)}</span>`;
+        } else {
+            html += `<a href="${currentPath}">${decodeURIComponent(part)}</a>`;
+        }
+    });
+
+    container.innerHTML = html;
+}
+
+function downloadFile(path) {
+    const a = document.createElement('a');
     a.href = path;
-    a.download = name;
+    a.download = path.split('/').pop();
     a.click();
 }
 
-function playAudio(url, uid) {
-    Audd.src = url;
-    Audd.play();
-    var btn = document.getElementById(uid);
-    btn.outerHTML =
-        `<button type="button" class="btn btn-danger" onclick='pauseAudio("` +
-        url +
-        `", this.id)' id="` +
-        uid +
-        `"><i class="bi bi-pause-circle"></i></button>`;
-    ToastMessage("Playing " + url.split("/").pop(), "primary");
-    if (CurrentPlaying[0] != null && CurrentPlaying[0] != uid) {
-        var btn = document.getElementById(CurrentPlaying[0]);
-        btn.outerHTML =
-            `<button type="button" class="btn btn-danger" onclick='playAudio("` +
-            CurrentPlaying[1] +
-            `", this.id)' id="` +
-            CurrentPlaying[0] +
-            `"><i class="bi bi-play-circle"></i></button>`;
-    }
-    CurrentPlaying = [uid, url];
-    Audd.onended = function () {
-        btn.outerHTML =
-            `<button type="button" class="btn btn-danger" onclick='playAudio("` +
-            url +
-            `", this.id)' id="` +
-            uid +
-            `"><i class="bi bi-play-circle"></i></button>`;
-        CurrentPlaying = [null, null];
-    };
+function playVideo(path) {
+    window.location.href = '/stream' + path;
 }
 
-function pauseAudio(url, uid) {
-    Audd.pause();
-    var btn = document.getElementById(uid);
-    btn.outerHTML =
-        `<button type="button" class="btn btn-danger" onclick='playAudio("` +
-        url +
-        `", this.id)' id="` +
-        uid +
-        `"><i class="bi bi-play-circle"></i></button>`;
-    ToastMessage("Paused Audio", "primary");
+function playAudio(path) {
+    // Simple audio player
+    const audio = new Audio(path);
+    audio.play();
+    Toast('Playing: ' + path.split('/').pop(), 'info');
 }
 
-function showImage(e) {
-    url = $(e).data("src");
-    var modal = document.getElementById("main-modal");
-    var img = document.getElementById("main-modal-img");
-    var captionText = document.getElementById("main-modal-caption");
-    var closeSpan = document.getElementsByClassName("close")[0];
-    modal.style.display = "block";
-    img.src = url;
-    captionText.innerHTML = url;
-    closeSpan.onclick = function () {
-        modal.style.display = "none";
-    };
+function showImage(path, name) {
+    document.getElementById('preview-image').src = path;
+    document.getElementById('image-title').textContent = name;
+    document.getElementById('image-modal').classList.add('active');
 }
 
-
-function playVideo(e) {
-    var url = $(e).data("src");
-    window.location.href = "/stream/" + url;
+function closeImageModal() {
+    document.getElementById('image-modal').classList.remove('active');
 }
 
-function deleteFile(e) {
-    var current_url = window.location.href;
-    var path = $(e).data("path");
-    var name = path.split("/").pop();
-    var r = confirm("Are you sure you want to delete " + name + "?");
-    if (r !== true) {
-        return;
-    }
-    path = path.replace("/dir/", "");
-    console.log(path);
+function deleteFile(path, name) {
+    if (!confirm(`Delete "${name}"?`)) return;
+
+    const apiPath = path.replace('/dir/', '');
+
     $.ajax({
-        url: "/api/deletefile/" + path,
-        type: "GET",
-        success: function (data) {
-            ToastMessage("Deleted " + name, "danger");
-            updateDirList(current_url.replace("downloads", "dir"));
+        url: '/api/deletefile/' + apiPath,
+        type: 'GET',
+        success: function () {
+            Toast('Deleted: ' + name, 'success');
+            loadDirectory();
         },
         error: function (err) {
-            ToastMessage("Failed to delete " + err.responseText, "danger");
+            Toast('Failed to delete: ' + err.responseText, 'error');
+        }
+    });
+}
+
+function createFolder() {
+    const name = prompt('Enter folder name:');
+    if (!name) return;
+
+    $.ajax({
+        url: '/api/create' + window.location.pathname + name,
+        type: 'GET',
+        success: function () {
+            Toast('Folder created: ' + name, 'success');
+            loadDirectory();
         },
+        error: function (err) {
+            Toast('Failed to create folder: ' + err.responseText, 'error');
+        }
     });
 }
 
-function backButton() {
-    var path = window.location.pathname;
-    if (path.length > 1) {
-        var newPath = path.substring(0, path.lastIndexOf("/"));
-        window.location.href = newPath;
-    }
-}
+function handleFileUpload(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
 
-updateDirList();
-if (window.location.pathname == "/downloads/") {
-    ToastMessage("Welcome to File Manager", "primary");
-}
+    const formData = new FormData();
+    formData.append('file', files[0]);
+    formData.append('path', window.location.pathname);
 
-const handleFileUpload = (e) => {
-    const files = e.target.files;
-    const uploadData = new FormData();
-    uploadData.append("file", files[0]);
-    uploadData.append("path", window.location.pathname);
-    fetch("/api/upload", {
-        method: "POST",
-        body: uploadData,
-    }).then((response) => {
-        ToastMessage("Uploaded " + files[0].name, "success");
-        UpdateDir();
-    });
-};
+    Toast('Uploading: ' + files[0].name, 'info');
 
-document.querySelector("#file").addEventListener("change", (event) => {
-    handleFileUpload(event);
-});
-
-function CreateFolder() {
-    var name = prompt("Enter Folder Name");
-    if (name != null) {
-        $.ajax({
-            url: "/api/create/" + window.location.pathname + name,
-            type: "GET",
-            success: function (data) {
-                ToastMessage("Created " + name, "primary");
-                updateDirList();
-            },
-            error: function (data) {
-                ToastMessage("Error: " + data.responseText, "danger");
-            },
+    fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+    })
+        .then(response => {
+            if (!response.ok) throw new Error('Upload failed');
+            Toast('Uploaded: ' + files[0].name, 'success');
+            loadDirectory();
+        })
+        .catch(err => {
+            Toast('Upload failed: ' + err.message, 'error');
         });
-    } else {
-        ToastMessage("Name cannot be null", "danger");
-    }
+
+    event.target.value = '';
 }
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeImageModal();
+    if (e.key === 'Backspace' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+        e.preventDefault();
+        goBack();
+    }
+});

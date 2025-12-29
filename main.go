@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"html/template"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/gin-gonic/gin"
 )
 
 var (
@@ -16,39 +17,92 @@ var (
 )
 
 func main() {
-	fmt.Print("Starting server...")
-	HTMLServe()
-	go streamTorrentUpdate()
-	if err := http.ListenAndServe(Port, nil); err != nil {
-		log.Fatal("ListenAndServe: ", err)
-	}
-}
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.Default()
 
-func HTMLServe() {
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./static/index.html")
+	// Initialize WebSocket
+	InitWebSocket()
+
+	// Static files
+	r.Static("/static", "./static")
+
+	// HTML pages
+	r.GET("/", func(c *gin.Context) {
+		c.File("./static/index.html")
 	})
-	http.HandleFunc("/downloads/", func(w http.ResponseWriter, r *http.Request) {
-		template := template.Must(template.ParseFiles("./static/downloads.html"))
-		template.Execute(w, nil)
+
+	r.GET("/downloads/*path", func(c *gin.Context) {
+		tmpl := template.Must(template.ParseFiles("./static/downloads.html"))
+		tmpl.Execute(c.Writer, nil)
 	})
-	http.HandleFunc("/stream/", func(w http.ResponseWriter, r *http.Request) {
-		template := template.Must(template.ParseFiles("./static/player.html"))
-		template.Execute(w, nil)
+
+	r.GET("/stream/*path", func(c *gin.Context) {
+		tmpl := template.Must(template.ParseFiles("./static/player.html"))
+		tmpl.Execute(c.Writer, nil)
 	})
-	http.HandleFunc("/search/", func(w http.ResponseWriter, r *http.Request) {
-		template := template.Must(template.ParseFiles("./static/search.html"))
-		template.Execute(w, nil)
+
+	r.GET("/search", func(c *gin.Context) {
+		tmpl := template.Must(template.ParseFiles("./static/search.html"))
+		tmpl.Execute(c.Writer, nil)
 	})
-	// static files
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
+
+	// WebSocket endpoint
+	r.GET("/ws", func(c *gin.Context) {
+		WSHandler(c.Writer, c.Request)
+	})
+
+	// API routes
+	api := r.Group("/api")
+	{
+		// Torrent APIs
+		api.POST("/add", AddTorrentHandler)
+		api.GET("/torrents", ActiveTorrentsHandler)
+		api.GET("/torrent", GetTorrentHandler)
+		api.POST("/remove", DeleteTorrentHandler)
+		api.POST("/pause", PauseTorrentHandler)
+		api.POST("/resume", ResumeTorrentHandler)
+		api.POST("/removeall", DropAllHandler)
+		api.POST("/stopall", StopAllHandler)
+		api.POST("/startall", StartAllHandler)
+
+		// System APIs
+		api.GET("/status", SystemStatsHandler)
+
+		// File APIs
+		api.GET("/search", SearchTorrentsHandler)
+		api.GET("/autocomplete", AutoCompleteHandler)
+		api.POST("/upload", UploadFileHandler)
+		api.GET("/create/*path", CreateFolderHandler)
+		api.GET("/deletefile/*path", DeleteFileHandler)
+		api.GET("/zip/*path", ZipFolderHandler)
+
+		// Aria2 APIs
+		api.GET("/aria2/status", Aria2StatusHandlerGin)
+		api.POST("/aria2/add", AddAria2HandlerGin)
+		api.GET("/aria2/downloads", GetAria2HandlerGin)
+		api.POST("/aria2/pause", PauseAria2HandlerGin)
+		api.POST("/aria2/resume", ResumeAria2HandlerGin)
+		api.POST("/aria2/remove", RemoveAria2HandlerGin)
+
+		// FFmpeg APIs
+		api.GET("/ffmpeg/status", FFmpegStatusHandlerGin)
+		api.POST("/ffmpeg/convert", AddConversionHandlerGin)
+		api.GET("/ffmpeg/queue", GetConversionQueueHandlerGin)
+		api.POST("/ffmpeg/cancel", CancelConversionHandlerGin)
+		api.POST("/ffmpeg/remove", RemoveConversionHandlerGin)
+	}
+
+	// Directory listing / file serving
+	r.GET("/dir/*path", GetDirContentsHandler)
+
+	fmt.Printf("CloudTorrent starting on %s\n", Port)
+	fmt.Println("WebSocket enabled at /ws")
+
+	if err := r.Run(Port); err != nil {
+		log.Fatal("Server error: ", err)
+	}
 }
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	http.HandleFunc("/test/", func(w http.ResponseWriter, r *http.Request) {
-		template := template.Must(template.ParseFiles("./assets/test.html"))
-		template.Execute(w, nil)
-	})
-	http.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("./assets"))))
 }

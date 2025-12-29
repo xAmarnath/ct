@@ -1,53 +1,178 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-    <meta name="og:title" content="Video Player" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta charset="utf-8" />
-    <meta name="description" content="" />
-    <link type="image/png" sizes="32x32" rel="icon" href="https://img.icons8.com/ios-glyphs/60/4a90e2/cloud.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="CloudTorrent - Video Player" />
+    <title>Player - CloudTorrent</title>
+    <link type="image/png" sizes="32x32" rel="icon" href="https://img.icons8.com/fluency/48/cloud-download.png" />
     <link rel="stylesheet" href="/static/css/style.css" />
-    <link rel="stylesheet" href="https://cdn.plyr.io/3.7.2/plyr.css" />
+    <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+    <style>
+        .player-wrapper {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .video-info {
+            padding: 1.5rem;
+            background: var(--bg-surface);
+            border-radius: var(--radius-lg);
+            margin-top: 1.5rem;
+        }
+        
+        .video-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            word-break: break-word;
+        }
+        
+        .video-path {
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        
+        .plyr {
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+        }
+        
+        /* Custom Plyr colors */
+        :root {
+            --plyr-color-main: var(--neon-cyan);
+            --plyr-video-background: var(--bg-void);
+        }
+        
+        .plyr--video {
+            background: var(--bg-void);
+        }
+    </style>
 </head>
 
 <body>
-    <header>
-        <div class="m-4">
-            <nav class="navbar navbar-expand-lg navbar-light" id="main-nav">
-                <div class="container-fluid">
-                    <a href="#" class="navbar-brand">
-                        <h1>
-                            <i class="bi bi-play-fill" style="color: rgb(192, 127, 41);"></i>
-                            Video Player
-                        </h1>
-                        <div class="form-check form-switch">
-                            <input type="checkbox" class="form-check-input" id="darkSwitch" />
-                            <label class="custom-control-label" for="darkSwitch" id="dark-icon"><i
-                                    class="bi bi-brightness-high"></i></label>
-                        </div>
-                    </a>
-                    <div class="nav-link">
-                        <nav class="nav nav-pills flex-column flex-sm-row">
-                            <a class="flex-sm-fill text-sm-center nav-link" href="/">Home</a>
-                            <a class="flex-sm-fill text-sm-center nav-link" href="/downloads/">Files</a>
-                            <a class="flex-sm-fill text-sm-center nav-link" href="/search">Search</a>
-                            <a class="flex-sm-fill text-sm-center nav-link active" href="/stream">Player</a>
-                        </nav>
-                    </div>
+    <!-- Main Navigation -->
+    <nav class="main-nav">
+        <div class="nav-container">
+            <a href="/" class="logo">
+                <div class="logo-icon">
+                    <i class="bi bi-cloud-arrow-down-fill"></i>
                 </div>
-            </nav>
+                <span class="logo-text">CloudTorrent</span>
+            </a>
+
+            <div class="nav-tabs">
+                <a href="/" class="nav-tab">
+                    <i class="bi bi-magnet"></i>
+                    Torrents
+                </a>
+                <a href="/downloads/" class="nav-tab">
+                    <i class="bi bi-folder2-open"></i>
+                    Files
+                </a>
+                <a href="/search" class="nav-tab">
+                    <i class="bi bi-search"></i>
+                    Search
+                </a>
+                <a href="#" class="nav-tab active">
+                    <i class="bi bi-play-circle"></i>
+                    Player
+                </a>
+            </div>
+
+            <div class="nav-actions">
+                <button class="btn btn-secondary btn-sm" onclick="downloadVideo()">
+                    <i class="bi bi-download"></i> Download
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="goBack()">
+                    <i class="bi bi-arrow-left"></i> Back
+                </button>
+            </div>
         </div>
-    </header>
-    <div class="container">
-        <div id="player-div" class="player-div"></div>
-    </div>
-    </div>
-    <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
-    <script src="https://cdn.plyr.io/3.7.2/plyr.js"></script>
+    </nav>
+
+    <!-- Main Container -->
+    <main class="main-container">
+        <div class="player-wrapper">
+            <div id="player-container">
+                <!-- Video will be injected here -->
+            </div>
+            
+            <div class="video-info glass-card">
+                <div class="video-title" id="video-title">Loading video...</div>
+                <div class="video-path" id="video-path"></div>
+                
+                <div class="item-actions" style="margin-top: 1rem;">
+                    <button class="btn btn-primary btn-sm" onclick="downloadVideo()">
+                        <i class="bi bi-download"></i> Download Video
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="copyVideoLink()">
+                        <i class="bi bi-link-45deg"></i> Copy Link
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
     <script src="/static/js/addons.js"></script>
-    <script src="/static/js/player.js"></script>
-    <script src="/static/js/dark.js"></script>
+    <script>
+        // Get video source from URL
+        const videoSrc = window.location.pathname.replace('/stream', '');
+        const videoName = decodeURIComponent(videoSrc.split('/').pop());
+        
+        // Update UI
+        document.getElementById('video-title').textContent = videoName.replace(/\.[^/.]+$/, '');
+        document.getElementById('video-path').textContent = videoSrc;
+        
+        // Create video element
+        const container = document.getElementById('player-container');
+        container.innerHTML = `
+            <video id="player" playsinline controls crossorigin>
+                <source src="${videoSrc}" type="video/mp4" />
+            </video>
+        `;
+        
+        // Initialize Plyr
+        const player = new Plyr('#player', {
+            controls: [
+                'play-large', 'play', 'progress', 'current-time', 'duration',
+                'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'
+            ],
+            settings: ['captions', 'quality', 'speed'],
+            speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+            keyboard: { focused: true, global: true }
+        });
+        
+        function downloadVideo() {
+            const a = document.createElement('a');
+            a.href = videoSrc;
+            a.download = videoName;
+            a.click();
+            Toast('Download started', 'success');
+        }
+        
+        function copyVideoLink() {
+            navigator.clipboard.writeText(window.location.origin + videoSrc).then(
+                () => Toast('Link copied to clipboard', 'success'),
+                () => Toast('Failed to copy link', 'error')
+            );
+        }
+        
+        function goBack() {
+            // Go back to the folder containing the video
+            const folderPath = videoSrc.substring(0, videoSrc.lastIndexOf('/'));
+            window.location.href = '/downloads' + folderPath.replace('/dir', '');
+        }
+        
+        Toast('Now playing: ' + videoName, 'info');
+    </script>
 </body>
 
 </html>

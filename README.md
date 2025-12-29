@@ -1,61 +1,83 @@
-<img src="https://envs.sh/eH8.png" alt="logo" width="500"/>
-~ New In Development Version ~
+# CloudTorrent
 
-<img src="https://raw.githubusercontent.com/xamarnath/CloudTorrent/master/static/img/Screenshot_2022-05-23-12-00-44.png" width="500" alt="screenshot"/>
+A modern, self-hosted torrent client with web UI. Features include:
 
-**Cloud torrent** is a a self-hosted remote torrent client, written in Go (golang). You start torrents remotely, which are downloaded as sets of files on the local disk of the server, which are then retrievable or streamable via HTTP.
+- **Torrent Downloads** - Using Rain torrent library
+- **Direct Downloads** - Via Aria2 integration (optional)
+- **Video Conversion** - Via FFmpeg integration (optional)
+- **Real-time Updates** - WebSocket-based live progress
+- **Modern UI** - Dark editorial theme, mobile responsive
 
-### Features
+## Features
 
-- Single binary
-- Cross platform
-- Embedded torrent search
-- Real-time updates
-- Mobile-friendly
-- Fast [content server](http://golang.org/pkg/net/http/#ServeContent)
+- 🧲 Magnet link and torrent file support
+- ⚡ Real-time download progress via WebSocket
+- 📁 Built-in file browser with download/stream
+- 🎬 Video player with streaming support
+- 🔄 Aria2 integration for HTTP/FTP downloads
+- 🎥 FFmpeg video conversion (MP4, WebM, MKV)
+- 🔍 Torrent search
+- 📱 Mobile responsive UI
 
-See [Future Features here](#future-features)
+## Quick Start
 
-### Install
+### Using Docker
 
-**Binaries**
-
-[![Releases](https://img.shields.io/github/release/jpillora/cloud-torrent.svg)](https://github.com/jpillora/cloud-torrent/releases) [![Releases](https://img.shields.io/github/downloads/jpillora/cloud-torrent/total.svg)](https://github.com/jpillora/cloud-torrent/releases)
-
-See [the latest release](https://github.com/jpillora/cloud-torrent/releases/latest) or download and install it now with
-
-```
-git clone https://github.com/xamarnath/CloudTorrent && cd CloudTorrent && go build . && ./main
-```
-
-**Source**
-
-_[Go](https://golang.org/dl/) is required to install from source_
-
-```sh
-$ go get -v github.com/jpillora/cloud-torrent
+```bash
+docker build -t cloudtorrent .
+docker run -d -p 8080:8080 -v ./downloads:/app/downloads cloudtorrent
 ```
 
-### Usage
+### Manual Build
 
+```bash
+# Prerequisites: Go 1.21+
+go build -o cloudtorrent .
+./cloudtorrent
 ```
-$ https://github.com/xamarnath/CloudTorrent
-$ go build
-$ ./main
-```
 
-### Future features
+Access the UI at `http://localhost:8080`
 
-In summary, the core features will be:
-TODO
+## Optional Dependencies
 
-- **File Transforms**
+- **Aria2** - For HTTP/FTP direct downloads
+  - Install: `apt install aria2` or `brew install aria2`
+  - CloudTorrent will auto-detect and enable if available
 
-  During a file tranfer, one could apply different transforms against the byte stream for various effect. For example, supported transforms might include: video transcoding (using ffmpeg), encryption and decryption, [media sorting](https://github.com/jpillora/cloud-torrent/issues/4) (file renaming), and writing multiple files as a single zip file.
+- **FFmpeg** - For video format conversion
+  - Install: `apt install ffmpeg` or `brew install ffmpeg`
+  - CloudTorrent will auto-detect and enable if available
 
-- **Automatic updates** Binary will upgrade itself, adding new features as they get released.
-- **RSS** Automatically add torrents, with smart episode filter.
+## Configuration
 
-Once completed, cloud-torrent will no longer be a simple torrent client and most likely project be renamed.
+By default, CloudTorrent uses:
+- Port: `8080` (or auto-detected available port)
+- Downloads directory: `./downloads/`
+- Torrent data: `./downloads/torrents/`
+- Database: `./downloads/torrents.db`
 
-Copyright (c) 2022 RoseLoverX
+## API Endpoints
+
+### Torrents
+- `POST /api/add` - Add torrent by magnet
+- `GET /api/torrents` - List active torrents
+- `POST /api/remove` - Remove torrent
+- `POST /api/pause` - Pause torrent
+- `POST /api/resume` - Resume torrent
+
+### Aria2 (if available)
+- `GET /api/aria2/status` - Check availability
+- `POST /api/aria2/add` - Add download URL
+- `GET /api/aria2/downloads` - List downloads
+
+### FFmpeg (if available)
+- `GET /api/ffmpeg/status` - Check availability
+- `POST /api/ffmpeg/convert` - Start conversion
+- `GET /api/ffmpeg/queue` - List conversions
+
+### WebSocket
+- `GET /ws` - Real-time updates
+
+## License
+
+MIT

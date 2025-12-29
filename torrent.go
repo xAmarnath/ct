@@ -26,6 +26,8 @@ func InitClient() *torrent.Session {
 	config := torrent.DefaultConfig
 	config.DataDir = Root + "/torrents/"
 	config.Database = Root + "/torrents.db"
+	// Suppress verbose announce errors
+	config.Debug = false
 	client, err := torrent.NewSession(config)
 	if err != nil {
 		log.Fatal(err)

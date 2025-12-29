@@ -1,247 +1,251 @@
-var table = document.getElementById("files-table");
+// Torrent Manager - WebSocket-based updates with diff checking
 
-function Log() {
-  console.log("Magnet Link: ");
+let previousTorrentsData = null;
+
+function updateTorrentCount(count) {
+  const badge = document.getElementById('torrent-count');
+  if (badge && badge.textContent !== String(count || 0)) badge.textContent = count || 0;
+  const stat = document.getElementById('stat-downloads');
+  if (stat && stat.textContent !== String(count || 0)) stat.textContent = count || 0;
 }
 
+function renderTorrents(torrents) {
+  const container = document.getElementById('torrent-list');
+  if (!container) return;
+
+  const newData = JSON.stringify(torrents);
+  if (previousTorrentsData === newData) return;
+  previousTorrentsData = newData;
+
+  if (!torrents || torrents.length === 0) {
+    container.innerHTML = `
+            <div class="empty-state">
+                <i class="bi bi-magnet"></i>
+                <h3>No Active Torrents</h3>
+                <p>Paste a magnet link above to start downloading</p>
+            </div>
+        `;
+    return;
+  }
+
+  const existingCards = container.querySelectorAll('.item-card');
+  const existingUids = new Set();
+  existingCards.forEach(card => { if (card.dataset.uid) existingUids.add(card.dataset.uid); });
+  const newUids = new Set(torrents.map(t => t.uid));
+
+  existingCards.forEach(card => { if (!newUids.has(card.dataset.uid)) card.remove(); });
+
+  const emptyState = container.querySelector('.empty-state');
+  if (emptyState) emptyState.remove();
+
+  torrents.forEach((torrent, index) => {
+    let card = container.querySelector(`[data-uid="${torrent.uid}"]`);
+    if (card) {
+      updateTorrentCard(card, torrent);
+    } else {
+      const newCard = document.createElement('div');
+      newCard.className = 'item-card';
+      newCard.dataset.uid = torrent.uid;
+      newCard.innerHTML = createTorrentCardContent(torrent);
+      container.appendChild(newCard);
+    }
+  });
+}
+
+function updateTorrentCard(card, torrent) {
+  const statusClass = getStatusClass(torrent.status);
+  const progressNum = parseFloat(torrent.progress) || 0;
+
+  const nameEl = card.querySelector('.item-name');
+  if (nameEl && nameEl.textContent !== torrent.name) nameEl.textContent = torrent.name;
+
+  const progressFill = card.querySelector('.progress-fill');
+  if (progressFill) progressFill.style.width = progressNum + '%';
+
+  const progressInfo = card.querySelector('.progress-info');
+  if (progressInfo) progressInfo.innerHTML = `<span>${torrent.perc}</span><span>${progressNum.toFixed(1)}%</span>`;
+
+  const statusEl = card.querySelector('.item-status');
+  if (statusEl) {
+    statusEl.className = `item-status ${statusClass}`;
+    statusEl.innerHTML = `<i class="bi bi-${getStatusIcon(torrent.status)}"></i> ${torrent.status}`;
+  }
+
+  // Update actions (pause/resume button)
+  const actionsEl = card.querySelector('.item-actions');
+  if (actionsEl) {
+    actionsEl.innerHTML = createTorrentActions(torrent);
+  }
+
+  const metaEl = card.querySelector('.item-meta');
+  if (metaEl) {
+    let html = `<span><i class="bi bi-hdd"></i> ${torrent.size}</span>`;
+    if (torrent.speed && torrent.speed !== '-/-') html += `<span class="speed-indicator"><i class="bi bi-speedometer2"></i> ${torrent.speed}</span>`;
+    if (torrent.eta && torrent.eta !== '0s' && torrent.status === 'Downloading') html += `<span><i class="bi bi-clock"></i> ${torrent.eta}</span>`;
+    metaEl.innerHTML = html;
+  }
+}
+
+function createTorrentCardContent(torrent) {
+  const statusClass = getStatusClass(torrent.status);
+  const progressNum = parseFloat(torrent.progress) || 0;
+
+  return `
+        <div class="item-header">
+            <div class="item-info">
+                <div class="item-name">${escapeHtml(torrent.name)}</div>
+                <div class="item-meta">
+                    <span><i class="bi bi-hdd"></i> ${torrent.size}</span>
+                    ${torrent.speed && torrent.speed !== '-/-' ? `<span class="speed-indicator"><i class="bi bi-speedometer2"></i> ${torrent.speed}</span>` : ''}
+                    ${torrent.eta && torrent.eta !== '0s' && torrent.status === 'Downloading' ? `<span><i class="bi bi-clock"></i> ${torrent.eta}</span>` : ''}
+                </div>
+            </div>
+            <span class="item-status ${statusClass}">
+                <i class="bi bi-${getStatusIcon(torrent.status)}"></i>
+                ${torrent.status}
+            </span>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: ${progressNum}%"></div>
+            </div>
+            <div class="progress-info">
+                <span>${torrent.perc}</span>
+                <span>${progressNum.toFixed(1)}%</span>
+            </div>
+        </div>
+        <div class="item-actions">
+            ${createTorrentActions(torrent)}
+        </div>
+    `;
+}
+
+function createTorrentActions(torrent) {
+  const status = (torrent.status || '').toLowerCase();
+  let html = '';
+
+  html += `<button class="btn btn-secondary btn-sm" onclick="btnHref(this)" data-path="${torrent.path}"><i class="bi bi-folder2-open"></i></button>`;
+
+  // Pause/Resume based on status
+  if (status === 'downloading' || status === 'fetching metadata') {
+    html += `<button class="btn btn-secondary btn-sm" onclick="pauseTorrent('${torrent.uid}')"><i class="bi bi-pause-fill"></i></button>`;
+  } else if (status === 'stopped' || status === 'paused' || status.includes('stop')) {
+    html += `<button class="btn btn-primary btn-sm" onclick="resumeTorrent('${torrent.uid}')"><i class="bi bi-play-fill"></i></button>`;
+  }
+
+  if (status === 'completed') {
+    html += `<button class="btn btn-secondary btn-sm" onclick="zipDir(this)" data-path="${torrent.path}"><i class="bi bi-file-zip"></i></button>`;
+  }
+
+  html += `<button class="btn btn-danger btn-sm" onclick="confirmRemoveTorrent('${torrent.uid}')"><i class="bi bi-trash3"></i></button>`;
+  html += `<button class="btn btn-ghost btn-sm" onclick="copyToClipboard(this)" data-url="magnet:?xt=urn:btih:${torrent.magnet}"><i class="bi bi-clipboard"></i></button>`;
+
+  return html;
+}
+
+function getStatusIcon(status) {
+  const s = (status || '').toLowerCase();
+  if (s.includes('download')) return 'arrow-down-circle';
+  if (s.includes('complet')) return 'check-circle';
+  if (s.includes('paus') || s.includes('stop')) return 'pause-circle';
+  if (s.includes('metadata')) return 'hourglass-split';
+  return 'circle';
+}
+
+// API functions with custom confirm
 function addTorrent() {
-  var Input = document.getElementById("input");
-  if (Input.value == "") {
-    ToastMessage("Please enter a magnet link.", "danger");
+  const input = document.getElementById('magnet-input');
+  const magnet = input.value.trim();
+  const engine = document.getElementById('torrent-engine')?.value || 'rain';
+
+  if (!magnet) {
+    Toast('Please enter a magnet link', 'warning');
     return;
   }
-  var magnet = Input.value;
-  $.ajax({
-    url: "/api/add",
-    type: "POST",
-    data: {
-      magnet: magnet,
-    },
-    success: function (data) {
-      ToastMessage("Torrent added successfully.", "success");
-      Input.value = "";
-    },
-    error: function (data) {
-      ToastMessage("Error adding torrent, " + data.responseText, "danger");
-    },
-  });
-}
 
-function getTorrents() {
-  $.ajax({
-    url: "/api/torrents",
-    type: "GET",
-    success: function (data) {
-      updateTorrentList(data);
-    },
-  });
-}
-
-function updateTorrentList(data) {
-  var torrents = JSON.parse(data);
-  var list = $("#torrent-list");
-  list.empty();
-  if (torrents == null || torrents.length == 0) {
-    var a =
-      "<a class='list-group-item list-group-item-action flex-column align-items-start '>";
-    if (IsDark()) {
-      a =
-        "<a class='list-group-item list-group-item-action flex-column align-items-start text-white' style='background-color: #212529'>";
-    }
-    a += "<div class='d-flex w-100 justify-content-between'>";
-    a += "<h5 class='mb-1'>No torrents</h5>";
-    a += "</div>";
-    a +=
-      "<p class='mb-1'>There are no torrents currently being downloaded.</p>";
-    a += "</a>";
-    list.append(a);
-    return;
-  }
-  for (var i = 0; i < torrents.length; i++) {
-    var torrent = torrents[i];
-    var a =
-      "<a class='list-group-item list-group-item-action flex-column align-items-start shadow bg-body rounded'>";
-    if (IsDark()) {
-      a =
-        "<a class='list-group-item list-group-item-action flex-column align-items-start text-white' style='background-color: #212529' shadow bg-body rounded>";
-    }
-    a += "<div class='d-flex w-100 justify-content-between'>";
-    speed = "";
-    if (torrent.status == "Downloading") {
-      speed = ` <small class="text-success">[` + torrent.speed + `]</small>`;
-    }
-    a +=
-      "<h6 class='mb-1'><div style='word-wrap: break-word;'><b>" +
-      torrent.name +
-      speed +
-      "</b></div></h6>";
-    a += "<small><b class='text-secondary'>" + torrent.size + "</b></small>";
-    a += "</div>";
-    a += "<p class='mb-1 small fw-semibold'>" + torrent.status;
-    if (torrent.status == "Downloading" && torrent.eta != "") {
-      a += ` <small class="text-danger fw-bold">[` + torrent.eta + `]</small>`;
-    }
-    a += "</p>";
-    a += "<div class='progress' style='height: 4px;'>";
-    a +=
-      "<div class='progress-bar progress-bar-striped progress-bar-animated bg-" +
-      getBarColor(torrent.status) +
-      "' role='progressbar' aria-valuenow='" +
-      torrent.progress +
-      "' aria-valuemin='0' aria-valuemax='100' style='width: " +
-      torrent.progress +
-      "%'></div>";
-    a += "</div>";
-    a += `<div class="mt-2 pt-2 border-top">`;
-    a += `<div class="btn-group"><div class="btn-group me-2" role="group">`;
-    a += `<button type="button" class="btn btn-primary btn-sm" data-path="${torrent.path}" onclick="btnHref(this)">Browse</button></div>`;
-    a += `<div class="btn-group me-2" role="group"><button type="button" class="btn btn-danger btn-sm" onclick="removeTorrent('${torrent.uid}')">Delete</button></div>`;
-    if (
-      torrent.status == "Downloading" ||
-      torrent.status == "Fetching Metadata"
-    ) {
-      a += `<div class="btn-group me-2" role="group"><button type="button" class="btn btn-warning btn-sm" onclick="pauseTorrent('${torrent.uid}')">Pause</button></div>`;
-    } else if (torrent.status == "Completed") {
-      a += `<div class="btn-group me-2" role="group"><button type="button" class="btn btn-success btn-sm" onclick='zipDir(this)' data-path="${torrent.path}"><i class="bi bi-file-earmark-zip"></i> Zip</button></div>`;
-    } else if (torrent.status == "Stopped") {
-      a += `<div class="btn-group me-2" role="group"><button type="button" class="btn btn-secondary btn-sm" onclick="resumeTorrent('${torrent.uid}')">Resume</button></div>`;
-    }
-    a += `</div>`;
-    a += "</div></div></a>";
-    list.append(a);
-  }
-}
-
-function getBarColor(status) {
-  if (status == "Downloading") {
-    return "primary";
-  } else if (status == "Completed") {
-    return "success";
-  } else if (status == "Paused") {
-    return "warning";
-  } else if (status == "Stopped") {
-    return "danger";
+  if (engine === 'aria2' && window.aria2Available) {
+    // Use aria2 for magnet
+    $.ajax({
+      url: '/api/aria2/add',
+      type: 'POST',
+      data: { url: magnet },
+      success: function () {
+        Toast('Magnet added via Aria2', 'success');
+        input.value = '';
+      },
+      error: function (xhr) {
+        Toast('Error: ' + (xhr.responseText || 'Failed'), 'error');
+      }
+    });
   } else {
-    return "secondary";
+    // Use rain (default)
+    $.ajax({
+      url: '/api/add',
+      type: 'POST',
+      data: { magnet: magnet },
+      success: function () {
+        Toast('Torrent added', 'success');
+        input.value = '';
+      },
+      error: function (xhr) {
+        Toast('Error: ' + (xhr.responseText || 'Failed'), 'error');
+      }
+    });
   }
 }
 
-function removeTorrent(id) {
-  $.ajax({
-    url: "/api/remove",
-    type: "POST",
-    data: {
-      uid: id,
-    },
-    success: function (data) {
-      ToastMessage("Torrent removed successfully.", "success");
-      getTorrents();
-    },
+function confirmRemoveTorrent(uid) {
+  Confirm('Remove this torrent and its data?', () => {
+    $.ajax({
+      url: '/api/remove',
+      type: 'POST',
+      data: { uid: uid },
+      success: () => Toast('Torrent removed', 'success'),
+      error: (xhr) => Toast('Error: ' + xhr.responseText, 'error')
+    });
   });
 }
 
-function pauseTorrent(id) {
-  $.ajax({
-    url: "/api/pause",
-    type: "POST",
-    data: {
-      uid: id,
-    },
-    success: function (data) {
-      ToastMessage("Torrent paused successfully.", "primary");
-      getTorrents();
-    },
-  });
+function removeTorrent(uid) {
+  confirmRemoveTorrent(uid);
 }
 
-function resumeTorrent(id) {
-  $.ajax({
-    url: "/api/resume",
-    type: "POST",
-    data: {
-      uid: id,
-    },
-    success: function (data) {
-      ToastMessage("Torrent resumed successfully.", "success");
-      getTorrents();
-    },
-  });
+function pauseTorrent(uid) {
+  $.post('/api/pause', { uid: uid }).done(() => Toast('Paused', 'info'));
 }
 
-function stopAll() {
-  $.ajax({
-    url: "/api/stopall",
-    type: "POST",
-    success: function (data) {
-      ToastMessage("All torrents stopped.", "danger");
-      getTorrents();
-    },
-  });
+function resumeTorrent(uid) {
+  $.post('/api/resume', { uid: uid }).done(() => Toast('Resumed', 'success'));
 }
 
 function startAll() {
-  $.ajax({
-    url: "/api/startall",
-    type: "POST",
-    success: function (data) {
-      ToastMessage("All torrents started.", "primary");
-      getTorrents();
-    },
-  });
+  $.post('/api/startall').done(() => Toast('All started', 'success'));
 }
 
-const torr = new EventSource("/torrents/update");
-
-torr.addEventListener(
-  "torrents",
-  (e) => {
-    updateTorrentList(e.data);
-  },
-  false
-);
-
-function GetSystemInfo() {
-  $.ajax({
-    url: "/api/status",
-    type: "GET",
-    success: function (data) {
-      WriteSysInfo(data);
-    },
-  });
-}
-setInterval(GetSystemInfo, 10000);
-
-function WriteSysInfo(data) {
-  sys = document.getElementById("system-info");
-  sys.innerHTML = "";
-  html_ =
-    `<div class="card"><div class="card-body bg-light fw-bold round shadow-lg p-1"><p class="card-text text-success small">;CPU: ` +
-    data.cpu +
-    `, Memory: ` +
-    data.mem +
-    `, Disk: ` +
-    data.disk +
-    `, OS: ` +
-    data.os +
-    `, Arch: ` +
-    data.arch +
-    `, Downloads: ` +
-    data.downloads +
-    `, Folder: /downloads/torrents/</p></div></div>`;
-  sys.innerHTML = html_;
+function stopAll() {
+  $.post('/api/stopall').done(() => Toast('All stopped', 'info'));
 }
 
 function removeAll() {
-  $.ajax({
-    url: "/api/removeall",
-    type: "POST",
-    success: function (data) {
-      ToastMessage("All torrents removed successfully.", "success");
-      getTorrents();
-    },
+  Confirm('Remove ALL torrents?', () => {
+    $.post('/api/removeall').done(() => Toast('All removed', 'success'));
   });
 }
 
-GetSystemInfo();
-getTorrents();
-ToastMessage("Welcome to the Torrent Manager.", "success");
+// System stats
+function loadSystemStats() {
+  $.get('/api/status', function (data) {
+    [['stat-cpu', data.cpu + ' cores'], ['stat-mem', data.mem], ['stat-disk', data.disk], ['stat-os', data.os + '/' + data.arch], ['stat-downloads', data.downloads]]
+      .forEach(([id, val]) => {
+        const el = document.getElementById(id);
+        if (el && el.textContent !== val) el.textContent = val;
+      });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadSystemStats();
+  setInterval(loadSystemStats, 15000);
+  const input = document.getElementById('magnet-input');
+  if (input) input.addEventListener('keypress', (e) => { if (e.key === 'Enter') addTorrent(); });
+});
