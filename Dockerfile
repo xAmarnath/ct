@@ -15,7 +15,7 @@ FROM alpine:latest
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates ffmpeg aria2
+RUN apk add --no-cache ca-certificates ffmpeg
 
 COPY --from=builder /app/cloudtorrent .
 COPY --from=builder /app/static ./static
